@@ -1,0 +1,19 @@
+yolo_model:
+
+  config_file:
+    name: yolo-obj.cfg
+  weight_file:
+    name: yolo-obj_best.weights
+  threshold:
+    value: 0.5
+  detection_classes:
+    names:
+      - banana
+      - camera
+      - duck
+      - helmet
+      - lego
+      - pineapple
+      - rope
+      - stop
+    
