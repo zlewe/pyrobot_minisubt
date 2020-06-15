@@ -115,7 +115,7 @@ void listener(){
         tf_listener->lookupTransform(parent_id, child_id, ros::Time(0), echo_transform);
         origintoodom_trans = localization_trans*echo_transform.inverse();
         br->sendTransform(tf::StampedTransform(origintoodom_trans, ros::Time::now(), "origin", "map"));
-        ROS_LOGINFO("Sending tf");
+        ROS_INFO("Sending tf");
         /*
             find transformation matrix from echo_transform and min_distance_trans
         */    

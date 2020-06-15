@@ -19,6 +19,7 @@ data["detections"] = []
 rospy.init_node('D435_Object_Distance', anonymous=True)
 rospy.loginfo("Start D435_Object_Distance")
 cv_bridge = CvBridge()
+listener = tf.TransformListener()
 INDEX = 0
 
 print('Try to get camera info...')
@@ -33,11 +34,12 @@ fy = msg.P[5]
 cx = msg.P[2]
 cy = msg.P[6]
 
-rospy.on_shutdown(on_shutdown)
-
 def on_shutdown():
     with open('data.json', 'w') as outfile:
         json.dump(data, outfile, sort_keys=False, indent=4)
+
+
+
 
 def main():
     image_sub = message_filters.Subscriber('/darknet_ros/detection_image', Image)
@@ -45,7 +47,7 @@ def main():
     bb_sub = message_filters.Subscriber('/darknet_ros/bounding_boxes', BoundingBoxes)
     ts = message_filters.ApproximateTimeSynchronizer([image_sub, depth_image_sub, bb_sub], 10, 0.5)
     ts.registerCallback(callback)
-
+    rospy.on_shutdown(on_shutdown)
     while not rospy.is_shutdown():
         rospy.spin()
 
@@ -63,6 +65,8 @@ def getXYZ(xp, yp, zc, fx,fy,cx,cy):
     return (x,y,z)
 
 def callback(camera_img, depth_img, bb):
+    global INDEX
+    print("in cb", INDEX)
     try:
         cv_depthimage = cv_bridge.imgmsg_to_cv2(depth_img, "32FC1")
         cv_depthimage2 = np.array(cv_depthimage, dtype=np.float32)
@@ -79,12 +83,13 @@ def callback(camera_img, depth_img, bb):
         y_mean = (i.ymax + i.ymin) / 2
         zc = cv_depthimage2[int(y_mean)][int(x_mean)]
         
-        objectitem[0] = i.Class
-        objectitem[1] = i.ymin
-        objectitem[2] = i.ymax
-        objectitem[3] = i.xmin
-        objectitem[4] = i.xmax
-        objectitem[5] = zc
+        objectitem.append(i.Class)
+        objectitem.append(i.ymin)
+        objectitem.append(i.ymax)
+        objectitem.append(i.xmin)
+        objectitem.append(i.xmax)
+        objectitem.append(zc)
+        objectlist.append(objectitem)
     
     if len(objectlist) == 0:
         return
@@ -104,7 +109,11 @@ def callback(camera_img, depth_img, bb):
         point_message.point.x = v1[0]/1000
         point_message.point.y = v1[1]/1000
         point_message.point.z = v1[2]/1000
-        point_message = tf.transformPoint('origin', point_message)
+        listener.waitForTransform("/camera_color_optical_frame", "/map", rospy.Time.now(), rospy.Duration(4.0))
+        try:    
+            point_message = listener.transformPoint('/map', point_message)
+        except (tf.LookupException, tf.ConnectivityException):
+            print("e")
 
         data['detections'].append({
             "main_class": objectlist[0][0],
@@ -145,7 +154,11 @@ def callback(camera_img, depth_img, bb):
         point_message.point.x = v1[0]/1000
         point_message.point.y = v1[1]/1000
         point_message.point.z = v1[2]/1000
-        point_message = tf.transformPoint('origin', point_message)
+        listener.waitForTransform("/camera_color_optical_frame", "/map", rospy.Time.now(), rospy.Duration(2.0))
+        try:    
+            point_message = listener.transformPoint('/map', point_message)
+        except (tf.LookupException, tf.ConnectivityException):
+            print("e")
 
         data['detections'].append({
             "main_class": objectlist[min_index][0],
