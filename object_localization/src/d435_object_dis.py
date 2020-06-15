@@ -33,7 +33,7 @@ fy = msg.P[5]
 cx = msg.P[2]
 cy = msg.P[6]
 
-rospy.shutdown(on_shutdown)
+rospy.on_shutdown(on_shutdown)
 
 def on_shutdown():
     with open('data.json', 'w') as outfile:
@@ -46,7 +46,7 @@ def main():
     ts = message_filters.ApproximateTimeSynchronizer([image_sub, depth_image_sub, bb_sub], 10, 0.5)
     ts.registerCallback(callback)
 
-    while not rospy.shutdown():
+    while not rospy.is_shutdown():
         rospy.spin()
 
 def getXYZ(xp, yp, zc, fx,fy,cx,cy):
