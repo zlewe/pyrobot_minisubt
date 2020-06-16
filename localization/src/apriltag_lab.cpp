@@ -9,6 +9,9 @@
 #include <geometry_msgs/Transform.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
+#include <nav_msgs/Odometry.h>
+
+#define THRESHOLD 0.001
 
 using namespace std;
 
@@ -20,23 +23,23 @@ tf::StampedTransform min_distance_trans;
 tf::Transform localization_trans;
 tf::Transform origintoodom_trans;
 tf::TransformBroadcaster *br;
-std::pair<int, double> min_distance (-1,100.0);
+std::pair<int, double> min_distance (-1,1000.0);
+std::pair<int, double> old_min_distance(-1,1000.0);
 
 double get_distance(tf::Vector3 v){
     return sqrt(v.getX()*v.getX() + v.getY()*v.getY() + v.getZ()*v.getZ());
 }
 
-void listener(){
+void listener(ros::NodeHandle& nh){
     min_distance.first = -1;
-    min_distance.second = 100.0;
+    min_distance.second = 1000.0;
     // use tf_listener to get the transformation from base_link to tag 0
     for (int i = 0; i<16;i++){
-        string parent_id = "base_link";
+        string parent_id = "map";
         string child_id = "tag_" + std::to_string(i);
         // string child_id = "tag_0";
-        tf_listener->waitForTransform(child_id, parent_id, ros::Time::now(), ros::Duration(0.1));
+        tf_listener->waitForTransform(child_id, parent_id, ros::Time::now(), ros::Duration(0.005));
         try {
-
             tf_listener->lookupTransform(parent_id, child_id, ros::Time(0), echo_transform);
             //std::cout << "At time " << std::setprecision(16) << echo_transform.stamp_.toSec() << std::endl;
             //cout << "Frame id:" << echo_transform.frame_id_ << ", Child id:" << echo_transform.child_frame_id_ << endl;
@@ -66,9 +69,27 @@ void listener(){
         }
         catch (tf::TransformException& ex)
         {
-            std::cout << "Exception thrown:" << ex.what() << std::endl;
+            //std::cout << "Exception thrown:" << ex.what() << std::endl;
         }
 	}
+
+
+    /*/if moving, don't update
+    nav_msgs::OdometryConstPtr odom;
+    odom = ros::topic::waitForMessage<nav_msgs::Odometry>("odom", nh);
+    if(abs((odom->twist).twist.angular.z) >= 0.4){
+        br->sendTransform(tf::StampedTransform(origintoodom_trans, ros::Time::now(), "origin", "map"));
+        ROS_INFO("Robot turning, send immediately");
+        return;
+    } */
+
+    //if same tag
+    /*if (old_min_distance.first == min_distance.first && abs(old_min_distance.second - min_distance.second) < THRESHOLD){
+        br->sendTransform(tf::StampedTransform(localization_trans, ros::Time::now(), "origin", "map"));
+        ROS_INFO("Same tf, send immediately");
+        return;
+    }
+    old_min_distance = min_distance;*/
 
     /*
         find the robot position from map_tag_0
@@ -80,6 +101,8 @@ void listener(){
 
         tf_listener->lookupTransform(parent_id, child_id, ros::Time(0), echo_transform);
         localization_trans = echo_transform*min_distance_trans.inverse();
+        br->sendTransform(tf::StampedTransform(localization_trans, ros::Time::now(), "origin", "map"));
+        ROS_INFO("Sending updated tf");
         /*
             find transformation matrix from echo_transform and min_distance_trans
         */    
@@ -104,18 +127,18 @@ void listener(){
     }
     catch (tf::TransformException& ex)
     {
-        std::cout << "Exception thrown:" << ex.what() << std::endl;
+        //std::cout << "Exception thrown:" << ex.what() << std::endl;
     }
 
     //get odom_to_baselink
-    parent_id = "map";
-    child_id = "base_link";
+    /*parent_id = "map";
+    child_id = "odom";
     tf_listener->waitForTransform(child_id, parent_id, ros::Time::now(), ros::Duration(0.001));
     try {
         tf_listener->lookupTransform(parent_id, child_id, ros::Time(0), echo_transform);
         origintoodom_trans = localization_trans*echo_transform.inverse();
         br->sendTransform(tf::StampedTransform(origintoodom_trans, ros::Time::now(), "origin", "map"));
-        ROS_INFO("Sending tf");
+        ROS_INFO("Sending updated tf");*/
         /*
             find transformation matrix from echo_transform and min_distance_trans
         */    
@@ -128,11 +151,11 @@ void listener(){
         //cout << "translation:\n";
         //cout << "[" << v.getX() << ", " << v.getY() << ", " << v.getZ() << "]" << endl;
         //cout << "=================================\n";
-    }
+    /*}
     catch (tf::TransformException& ex)
     {
-        std::cout << "Exception thrown:" << ex.what() << std::endl;
-    }
+        //std::cout << "Exception thrown:" << ex.what() << std::endl;
+    }*/
 
     return ;
 }
@@ -141,7 +164,7 @@ void listener(){
 int main(int argc, char** argv){
     ros::init(argc, argv, "apriltag_tf");
     ros::NodeHandle nh;
-    ros::Subscriber tf_sub;
+    //ros::Subscriber tf_sub;
     ros::Publisher vis_pub = nh.advertise<visualization_msgs::MarkerArray>( "robot_pose_from_tag", 0);
     // tf_sub = nh.subscribe("tf_static",16,&tf_cb);
     tf_listener = new tf::TransformListener();
@@ -170,7 +193,7 @@ int main(int argc, char** argv){
     while (ros::ok())
     {
         ros::spinOnce();
-        listener();
+        listener(nh);
         vis_pub.publish(marker_array);
     }
     

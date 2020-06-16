@@ -10,7 +10,6 @@ from cv_bridge import CvBridge, CvBridgeError
 from darknet_ros_msgs.msg import BoundingBoxes
 from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import PointStamped
-from std_srvs.srv import Trigger, TriggerResponse
 
 
 #pub = rospy.Publisher('/object_pose', PointStamped, queue_size=10)
@@ -22,7 +21,6 @@ rospy.loginfo("Start D435_Object_Distance")
 cv_bridge = CvBridge()
 listener = tf.TransformListener()
 INDEX = 0
-SAVE_FLAG = False
 
 print('Try to get camera info...')
 
@@ -40,26 +38,15 @@ def on_shutdown():
     with open('data.json', 'w') as outfile:
         json.dump(data, outfile, sort_keys=False, indent=4)
 
-def trigger_response_cb(request):
-    global INDEX
-    global SAVE_FLAG
-    #do save here
-    SAVE_FLAG = True
 
-    return TriggerResponse(
-        success = True,
-        message = "Saved, id=" + str(INDEX)
-    )
+
 
 def main():
     image_sub = message_filters.Subscriber('/darknet_ros/detection_image', Image)
     depth_image_sub = message_filters.Subscriber('/camera/aligned_depth_to_color/image_raw', Image)
     bb_sub = message_filters.Subscriber('/darknet_ros/bounding_boxes', BoundingBoxes)
-    ts = message_filters.ApproximateTimeSynchronizer([image_sub, depth_image_sub, bb_sub], 1, 80000)
+    ts = message_filters.ApproximateTimeSynchronizer([image_sub, depth_image_sub, bb_sub], 10, 0.5)
     ts.registerCallback(callback)
-
-    trig = rospy.Service('trigger_save', Trigger, trigger_response_cb)
-
     rospy.on_shutdown(on_shutdown)
     while not rospy.is_shutdown():
         rospy.spin()
@@ -79,18 +66,7 @@ def getXYZ(xp, yp, zc, fx,fy,cx,cy):
 
 def callback(camera_img, depth_img, bb):
     global INDEX
-    global SAVE_FLAG
-
-    message = ''
-    for i in bb.bounding_boxes:
-        message = message + ' ' + i.Class
-    print('see ', message)
-
-    if not SAVE_FLAG:
-        return
-
-    SAVE_FLAG = False
-
+    print("in cb", INDEX)
     try:
         cv_depthimage = cv_bridge.imgmsg_to_cv2(depth_img, "32FC1")
         cv_depthimage2 = np.array(cv_depthimage, dtype=np.float32)
@@ -128,19 +104,14 @@ def callback(camera_img, depth_img, bb):
         v1 = np.array(getXYZ(x_mean, y_mean, objectlist[0][5], fx, fy, cx, cy))
 
         point_message = PointStamped()
-        point_message.header.stamp = rospy.Time(0)
+        point_message.header = depth_img.header
         point_message.header.frame_id = "camera_color_optical_frame"
         point_message.point.x = v1[0]/1000
         point_message.point.y = v1[1]/1000
         point_message.point.z = v1[2]/1000
-        listener.waitForTransform("camera_color_optical_frame", "map", rospy.Time(0), rospy.Duration(4.0))
+        listener.waitForTransform("/camera_color_optical_frame", "/map", rospy.Time.now(), rospy.Duration(4.0))
         try:    
-            point_message = listener.transformPoint('map', point_message)
-            listener.waitForTransform("origin", "map", rospy.Time(0), rospy.Duration(4.0))
-            try:    
-                point_message = listener.transformPoint('origin', point_message)
-            except (tf.LookupException, tf.ConnectivityException):
-                print("e")
+            point_message = listener.transformPoint('/map', point_message)
         except (tf.LookupException, tf.ConnectivityException):
             print("e")
 
@@ -178,19 +149,14 @@ def callback(camera_img, depth_img, bb):
         v1 = np.array(getXYZ(x_mean, y_mean, min_z, fx, fy, cx, cy))
 
         point_message = PointStamped()
-        point_message.header.stamp = rospy.Time(0)
+        point_message.header = depth_img.header
         point_message.header.frame_id = "camera_color_optical_frame"
         point_message.point.x = v1[0]/1000
         point_message.point.y = v1[1]/1000
         point_message.point.z = v1[2]/1000
-        listener.waitForTransform("/camera_color_optical_frame", "/map", rospy.Time(0), rospy.Duration(1.0))
+        listener.waitForTransform("/camera_color_optical_frame", "/map", rospy.Time.now(), rospy.Duration(2.0))
         try:    
-            point_message = listener.transformPoint('map', point_message)
-            listener.waitForTransform("origin", "map", rospy.Time(0), rospy.Duration(4.0))
-            try:    
-                point_message = listener.transformPoint('origin', point_message)
-            except (tf.LookupException, tf.ConnectivityException):
-                print("e")
+            point_message = listener.transformPoint('/map', point_message)
         except (tf.LookupException, tf.ConnectivityException):
             print("e")
 
