@@ -9,11 +9,11 @@ yolo_model:
   detection_classes:
     names:
       - banana
-      - camera
-      - duck
+      - camera_sign
+      - yellow_duck
       - helmet
-      - lego
+      - lego_child
       - pineapple
       - rope
-      - stop
+      - stop_sign
     

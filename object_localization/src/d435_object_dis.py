@@ -6,16 +6,26 @@ import numpy as np
 import message_filters
 import cv2
 import tf
+import os
+import shutil
+from collections import OrderedDict
 from cv_bridge import CvBridge, CvBridgeError
 from darknet_ros_msgs.msg import BoundingBoxes
 from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import PointStamped
 from std_srvs.srv import Trigger, TriggerResponse
 
+TEAM_ID = '4'
+IMAGE_PATH = TEAM_ID + '_images'
+JSON_PATH = TEAM_ID + '_detections.json'
+
+if os.path.exists(IMAGE_PATH):
+    shutil.rmtree(IMAGE_PATH)
+os.mkdir(IMAGE_PATH)
 
 #pub = rospy.Publisher('/object_pose', PointStamped, queue_size=10)
 
-data = {}
+data = OrderedDict()
 data["detections"] = []
 rospy.init_node('D435_Object_Distance', anonymous=True)
 rospy.loginfo("Start D435_Object_Distance")
@@ -23,6 +33,8 @@ cv_bridge = CvBridge()
 listener = tf.TransformListener()
 INDEX = 0
 SAVE_FLAG = False
+IM_W = None
+IM_H = None
 
 print('Try to get camera info...')
 
@@ -37,7 +49,7 @@ cx = msg.P[2]
 cy = msg.P[6]
 
 def on_shutdown():
-    with open('data.json', 'w') as outfile:
+    with open(JSON_PATH, 'w') as outfile:
         json.dump(data, outfile, sort_keys=False, indent=4)
 
 def trigger_response_cb(request):
@@ -80,6 +92,8 @@ def getXYZ(xp, yp, zc, fx,fy,cx,cy):
 def callback(camera_img, depth_img, bb):
     global INDEX
     global SAVE_FLAG
+    global IM_H
+    global IM_W
 
     message = ''
     for i in bb.bounding_boxes:
@@ -98,6 +112,10 @@ def callback(camera_img, depth_img, bb):
     
     except CvBridgeError as e:
         print(e)
+
+    if (IM_H == None or IM_W == None):
+        IM_H = float(cv_detectionimage.shape[0])
+        IM_W = float(cv_detectionimage.shape[1])
 
     objectlist = []
     for i in bb.bounding_boxes:
@@ -121,7 +139,7 @@ def callback(camera_img, depth_img, bb):
     elif len(objectlist) == 1:
         #save as png
         filename = str(INDEX) + '.png'
-        cv2.imwrite(filename, cv_detectionimage)
+        cv2.imwrite(os.path.join(IMAGE_PATH, filename), cv_detectionimage)
 
         x_mean = (objectlist[0][4] + objectlist[0][3]) / 2
         y_mean = (objectlist[0][2] + objectlist[0][1]) / 2
@@ -144,27 +162,31 @@ def callback(camera_img, depth_img, bb):
         except (tf.LookupException, tf.ConnectivityException):
             print("e")
 
-        data['detections'].append({
-            "main_class": objectlist[0][0],
-            "x": point_message.point.x,
-            "y": point_message.point.y,
-            "z": point_message.point.z,
-            "image_name": filename,
-            "boxes":[]
-        })
-        data['detections'][INDEX]['boxes'].append({
-            "class": objectlist[0][0],
-            "top": objectlist[0][1],
-            "bottom": objectlist[0][2],
-            "left": objectlist[0][3],
-            "right": objectlist[0][4]
-        })
+        entry = OrderedDict()
+        entry["main_class"] = objectlist[0][0]
+        entry["x"] = point_message.point.x
+        entry["y"] = point_message.point.y
+        entry["z"] = point_message.point.z
+        entry["image_name"] = filename
+        entry["boxes"] = []
+
+        data['detections'].append(entry)
+
+        boxes_entry = OrderedDict()
+        boxes_entry["class"] = objectlist[0][0]
+        boxes_entry["top"] = objectlist[0][1] / IM_H
+        boxes_entry["bottom"] = objectlist[0][2] / IM_H
+        boxes_entry["left"] = objectlist[0][3] / IM_W
+        boxes_entry["right"] = objectlist[0][4] / IM_W
+
+        data['detections'][INDEX]['boxes'].append(boxes_entry)
+
         INDEX = INDEX + 1
 
     else:
         #save as png
         filename = str(INDEX) + '.png'
-        cv2.imwrite(filename, cv_detectionimage)
+        cv2.imwrite(os.path.join(IMAGE_PATH, filename), cv_detectionimage)
 
         min_index = 0
         min_z = objectlist[0][5]
@@ -194,23 +216,25 @@ def callback(camera_img, depth_img, bb):
         except (tf.LookupException, tf.ConnectivityException):
             print("e")
 
-        data['detections'].append({
-            "main_class": objectlist[min_index][0],
-            "x": point_message.point.x,
-            "y": point_message.point.y,
-            "z": point_message.point.z,
-            "image_name": filename,
-            "boxes":[]
-        })
+        entry = OrderedDict()
+        entry["main_class"] = objectlist[min_index][0]
+        entry["x"] = point_message.point.x
+        entry["y"] = point_message.point.y
+        entry["z"] = point_message.point.z
+        entry["image_name"] = filename
+        entry["boxes"] = []
+
+        data['detections'].append(entry)
         
         for i in range(len(objectlist)):
-            data['detections'][INDEX]['boxes'].append({
-                "class": objectlist[i][0],
-                "top": objectlist[i][1],
-                "bottom": objectlist[i][2],
-                "left": objectlist[i][3],
-                "right": objectlist[i][4]
-            })
+            boxes_entry = OrderedDict()
+            boxes_entry["class"] = objectlist[i][0]
+            boxes_entry["top"] = objectlist[i][1] / IM_H
+            boxes_entry["bottom"] = objectlist[i][2] / IM_H
+            boxes_entry["left"] = objectlist[i][3] / IM_W
+            boxes_entry["right"] = objectlist[i][4] / IM_W
+
+            data['detections'][INDEX]['boxes'].append(boxes_entry)
         
         INDEX = INDEX + 1
 
